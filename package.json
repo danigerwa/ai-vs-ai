@@ -1,0 +1,23 @@
+{
+  "name": "ai-vs-ai",
+  "version": "0.1.0",
+  "description": "AI vs AI browser extension for sending one AI conversation to another AI",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "wxt dev",
+    "dev:firefox": "wxt dev --browser firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build --browser firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip --browser firefox",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "wxt": "^0.20.20",
+    "typescript": "^5.0.0"
+  }
+}

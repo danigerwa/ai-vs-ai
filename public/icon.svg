@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Background -->
+  <rect width="128" height="128" rx="22" fill="#13111e"/>
+
+  <!-- Blue chat bubble (top-left), tail at bottom-left -->
+  <rect x="8" y="10" width="72" height="50" rx="11" fill="#3b82f6"/>
+  <polygon points="14,60 30,60 14,74" fill="#3b82f6"/>
+
+  <!-- Purple chat bubble (bottom-right), tail at top-right -->
+  <rect x="48" y="68" width="72" height="50" rx="11" fill="#8b5cf6"/>
+  <polygon points="114,68 98,68 114,54" fill="#8b5cf6"/>
+
+  <!-- Three dots in blue bubble -->
+  <circle cx="29" cy="35" r="5.5" fill="white"/>
+  <circle cx="44" cy="35" r="5.5" fill="white"/>
+  <circle cx="59" cy="35" r="5.5" fill="white"/>
+
+  <!-- Three dots in purple bubble -->
+  <circle cx="69" cy="93" r="5.5" fill="white"/>
+  <circle cx="84" cy="93" r="5.5" fill="white"/>
+  <circle cx="99" cy="93" r="5.5" fill="white"/>
+</svg>

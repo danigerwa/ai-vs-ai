@@ -1,0 +1,82 @@
+name: Build and Release
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Chrome zip
+        run: npm run zip
+
+      - name: Upload Chrome unpacked artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-vs-ai-chrome-mv3
+          path: .output/chrome-mv3
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Chrome zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-vs-ai-chrome-zip
+          path: .output/*-chrome.zip
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+      - name: Build Firefox zip
+        run: npm run zip:firefox
+
+      - name: Upload Firefox unpacked artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-vs-ai-firefox-mv3
+          path: .output/firefox-mv2
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Firefox zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-vs-ai-firefox-zip
+          path: .output/*-firefox.zip
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          test "$TAG_VERSION" = "$PACKAGE_VERSION"
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            .output/*-chrome.zip
+            .output/*-firefox.zip
+          generate_release_notes: true
