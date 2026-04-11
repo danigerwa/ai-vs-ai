@@ -4,7 +4,7 @@ Browser extension for sending a conversation from one AI chat app to another AI 
 
 ## Demo
 
-<video src="https://github.com/user-attachments/assets/85bcc3c9-73b9-451b-8af9-311667ac1955" controls width="100%"></video>
+<video src="https://github.com/user-attachments/assets/40721d73-7272-40d1-8e06-4e2f4f85fa9e" controls width="100%"></video>
 
 It currently supports:
 
