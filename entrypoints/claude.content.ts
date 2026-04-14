@@ -72,16 +72,34 @@ function extractConversation(): ExtractionResult {
 
   if (copyBtns.length > 0) {
     const messages: ConversationMessage[] = [];
+    const seenBoxes = new Set<HTMLElement>();
 
     for (const btn of copyBtns) {
-      const aiBox = findAIMessageBox(btn);
+      // Prefer .font-claude-response as the canonical AI message boundary.
+      // Without this, each code block's copy button would be treated as a separate
+      // AI turn, and the section headings between code blocks would become fake
+      // "user" messages.
+      const responseContainer = btn.closest<HTMLElement>('.font-claude-response');
+      const aiBox = responseContainer ?? findAIMessageBox(btn);
       if (!aiBox) continue;
 
-      const answer = getTextExcludingBranch(aiBox, btn);
+      // Skip if we've already extracted this response container.
+      if (seenBoxes.has(aiBox)) continue;
+      seenBoxes.add(aiBox);
+
+      const answer = responseContainer
+        ? getCleanText(aiBox)
+        : getTextExcludingBranch(aiBox, btn);
       if (!answer) continue;
 
-      const userBox = getPrecedingElement(aiBox);
-      const question = userBox ? getCleanText(userBox) : '';
+      // Find the user turn that precedes this AI response.
+      const userBox = responseContainer
+        ? findUserTurnBeforeClaudeResponse(responseContainer)
+        : getPrecedingElement(aiBox);
+
+      // Guard: never treat content inside a .font-claude-response as a user message.
+      const question =
+        userBox && !userBox.closest('.font-claude-response') ? getCleanText(userBox) : '';
 
       if (question) messages.push({ role: 'user', text: question });
       messages.push({ role: 'claude', text: answer });
@@ -142,6 +160,27 @@ function getPrecedingElement(aiBox: HTMLElement): HTMLElement | null {
   const prev = aiBox.previousElementSibling as HTMLElement | null;
   if (prev) return prev;
   return aiBox.parentElement?.previousElementSibling as HTMLElement | null;
+}
+
+/**
+ * Walk up from a .font-claude-response element until we find a previous sibling
+ * that is not itself (and doesn't contain) another .font-claude-response — that
+ * sibling is the user turn preceding this Claude response.
+ */
+function findUserTurnBeforeClaudeResponse(claudeEl: HTMLElement): HTMLElement | null {
+  let el: HTMLElement | null = claudeEl;
+  for (let depth = 0; depth < 15 && el && el !== document.body; depth++) {
+    const prev = el.previousElementSibling as HTMLElement | null;
+    if (
+      prev &&
+      !prev.classList.contains('font-claude-response') &&
+      !prev.querySelector('.font-claude-response')
+    ) {
+      return prev;
+    }
+    el = el.parentElement;
+  }
+  return null;
 }
 
 /**
