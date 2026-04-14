@@ -122,6 +122,23 @@ function extractByStructure(): ConversationMessage[] | null {
 }
 
 
+const BLOCK_TAGS = new Set([
+  'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DD', 'DIV', 'DL', 'DT',
+  'FIELDSET', 'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1', 'H2', 'H3',
+  'H4', 'H5', 'H6', 'HEADER', 'HR', 'LI', 'MAIN', 'NAV', 'OL', 'P',
+  'PRE', 'SECTION', 'SUMMARY', 'TABLE', 'TR', 'UL',
+]);
+
+function nodeToText(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+  if (node.nodeType !== Node.ELEMENT_NODE) return '';
+  const el = node as HTMLElement;
+  if (el.tagName === 'BR') return '\n';
+  if (el.tagName === 'PRE') return '\n' + (el.textContent ?? '') + '\n';
+  const inner = Array.from(el.childNodes).map(nodeToText).join('');
+  return BLOCK_TAGS.has(el.tagName) ? '\n' + inner + '\n' : inner;
+}
+
 function getCleanText(el: HTMLElement): string {
   const clone = el.cloneNode(true) as HTMLElement;
 
@@ -131,14 +148,8 @@ function getCleanText(el: HTMLElement): string {
     )
     .forEach((n) => n.remove());
 
-  clone.style.cssText = 'position:fixed;left:-9999px;top:-9999px;pointer-events:none;';
-  document.body.appendChild(clone);
-
-  const text = (clone.innerText ?? '')
+  return nodeToText(clone)
     .replace(/\b\d{1,2}:\d{2}(?:\s*[AP]M)?\b/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-
-  document.body.removeChild(clone);
-  return text;
 }

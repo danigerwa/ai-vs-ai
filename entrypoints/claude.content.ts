@@ -183,12 +183,33 @@ function findUserTurnBeforeClaudeResponse(claudeEl: HTMLElement): HTMLElement | 
   return null;
 }
 
+// Block-level HTML tags that should produce a newline break in plain text.
+const BLOCK_TAGS = new Set([
+  'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DD', 'DIV', 'DL', 'DT',
+  'FIELDSET', 'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1', 'H2', 'H3',
+  'H4', 'H5', 'H6', 'HEADER', 'HR', 'LI', 'MAIN', 'NAV', 'OL', 'P',
+  'PRE', 'SECTION', 'SUMMARY', 'TABLE', 'TR', 'UL',
+]);
+
+/**
+ * Recursively convert a DOM node to plain text.
+ * Block elements get newlines; <br> becomes \n; <pre> preserves verbatim content.
+ * Does not depend on CSS rendering or document attachment.
+ */
+function nodeToText(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+  if (node.nodeType !== Node.ELEMENT_NODE) return '';
+  const el = node as HTMLElement;
+  if (el.tagName === 'BR') return '\n';
+  if (el.tagName === 'PRE') return '\n' + (el.textContent ?? '') + '\n';
+  const inner = Array.from(el.childNodes).map(nodeToText).join('');
+  return BLOCK_TAGS.has(el.tagName) ? '\n' + inner + '\n' : inner;
+}
+
 /**
  * Extract clean readable text from an element.
- *
- * IMPORTANT: clone must be attached to the live document before innerText —
- * on detached nodes it falls back to textContent which includes <script>/<style> text.
- * Using position:fixed off-screen (NOT visibility:hidden, which would make innerText empty).
+ * Strips noise elements, then walks the DOM explicitly to produce newlines
+ * at block boundaries — independent of CSS rendering context.
  */
 function getCleanText(el: HTMLElement): string {
   const clone = el.cloneNode(true) as HTMLElement;
@@ -199,17 +220,11 @@ function getCleanText(el: HTMLElement): string {
     )
     .forEach((n) => n.remove());
 
-  clone.style.cssText = 'position:fixed;left:-9999px;top:-9999px;pointer-events:none;';
-  document.body.appendChild(clone);
-
-  const text = (clone.innerText ?? '')
+  return nodeToText(clone)
     .replace(/\b\d{1,2}:\d{2}(?:\s*[AP]M)?\b/gi, '')                          // timestamps: 23:45, 11:30 AM
     .replace(/\b\d+\s*\/\s*\d+\b/g, '')                                       // counters: 2 / 2
     .replace(/\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\b/gi, '') // dates: 10 Apr, 5 January
     .replace(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}\b/gi, '') // dates: Apr 10, January 5
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-
-  document.body.removeChild(clone);
-  return text;
 }
