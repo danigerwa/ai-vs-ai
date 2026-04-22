@@ -56,47 +56,32 @@ function extractConversation(): ExtractionResult {
       );
 
       const messages = tagged
-        .map(({ el, role }) => ({ role, text: getCleanText(el) }))
+        .map(({ el, role }) => ({ role, text: getCleanText(getContentElement(el)) }))
         .filter((m) => m.text.length > 0);
 
       if (messages.length >= 2) return { messages };
     }
   }
 
-  // --- Strategy 2: Copy-button anchor for each AI message ---
-  const copyBtns = Array.from(
-    document.querySelectorAll<HTMLElement>(
-      'button[aria-label*="copy" i], button[title*="copy" i], button[data-testid*="copy" i]'
-    )
+  // --- Strategy 2: .font-claude-response direct query ---
+  // Query the AI response containers directly instead of navigating from copy buttons.
+  // Copy buttons live OUTSIDE .font-claude-response in the current Claude HTML, so the
+  // old btn.closest('.font-claude-response') path was always null, causing findAIMessageBox
+  // to walk up to an outer container that included sr-only turn labels as children.
+  const claudeResponses = Array.from(
+    document.querySelectorAll<HTMLElement>('.font-claude-response')
   );
 
-  if (copyBtns.length > 0) {
+  if (claudeResponses.length > 0) {
     const messages: ConversationMessage[] = [];
-    const seenBoxes = new Set<HTMLElement>();
 
-    for (const btn of copyBtns) {
-      // Prefer .font-claude-response as the canonical AI message boundary.
-      // Without this, each code block's copy button would be treated as a separate
-      // AI turn, and the section headings between code blocks would become fake
-      // "user" messages.
-      const responseContainer = btn.closest<HTMLElement>('.font-claude-response');
-      const aiBox = responseContainer ?? findAIMessageBox(btn);
-      if (!aiBox) continue;
-
-      // Skip if we've already extracted this response container.
-      if (seenBoxes.has(aiBox)) continue;
-      seenBoxes.add(aiBox);
-
-      const answer = responseContainer
-        ? getCleanText(aiBox)
-        : getTextExcludingBranch(aiBox, btn);
+    for (const response of claudeResponses) {
+      // .font-claude-response does NOT contain the sr-only "Claude responded:" h2 —
+      // that h2 is a sibling. Tool-use sr-only spans inside it are stripped as descendants.
+      const answer = getCleanText(response);
       if (!answer) continue;
 
-      // Find the user turn that precedes this AI response.
-      const userBox = responseContainer
-        ? findUserTurnBeforeClaudeResponse(responseContainer)
-        : getPrecedingElement(aiBox);
-
+      const userBox = findUserTurnBeforeClaudeResponse(response);
       // Guard: never treat content inside a .font-claude-response as a user message.
       const question =
         userBox && !userBox.closest('.font-claude-response') ? getCleanText(userBox) : '';
@@ -114,12 +99,87 @@ function extractConversation(): ExtractionResult {
     if (deduped.length >= 2) return { messages: deduped };
   }
 
+  // --- Strategy 3: Copy-button anchor for each AI message (fallback) ---
+  const copyBtns = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      'button[aria-label*="copy" i], button[title*="copy" i], button[data-testid*="copy" i]'
+    )
+  );
+
+  if (copyBtns.length > 0) {
+    const messages: ConversationMessage[] = [];
+    const seenBoxes = new Set<HTMLElement>();
+
+    for (const btn of copyBtns) {
+      const responseContainer = btn.closest<HTMLElement>('.font-claude-response');
+      const aiBox = responseContainer ?? findAIMessageBox(btn);
+      if (!aiBox) continue;
+
+      if (seenBoxes.has(aiBox)) continue;
+      seenBoxes.add(aiBox);
+
+      const answer = responseContainer
+        ? getCleanText(aiBox)
+        : getTextExcludingBranch(aiBox, btn);
+      if (!answer) continue;
+
+      const userBox = responseContainer
+        ? findUserTurnBeforeClaudeResponse(responseContainer)
+        : getPrecedingElement(aiBox);
+
+      const question =
+        userBox && !userBox.closest('.font-claude-response') ? getCleanText(userBox) : '';
+
+      if (question) messages.push({ role: 'user', text: question });
+      messages.push({ role: 'claude', text: answer });
+    }
+
+    const deduped = messages.filter(
+      (m, i) => i === 0 || !(m.role === messages[i - 1].role && m.text === messages[i - 1].text)
+    );
+
+    if (deduped.length >= 2) return { messages: deduped };
+  }
+
   return {
     error: 'Could not find a conversation. Make sure you are on a Claude chat page with at least one response.',
   };
 }
 
 // ─── DOM helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Within a turn container, try to find the inner element that holds only the
+ * message prose — skipping role labels, avatars, and tool-use blocks that live
+ * as siblings in the outer container.
+ *
+ * Try progressively narrower selectors; fall back to the container itself so
+ * extraction always has something to work with.
+ */
+function getContentElement(turn: HTMLElement): HTMLElement {
+  const CONTENT_SELECTORS = [
+    // Claude.ai prose containers
+    '.font-claude-message',
+    '.font-user-message',
+    '[class*="prose"]',
+    // Generic prose/markdown containers used by several platforms
+    '.prose',
+    '.markdown',
+    '.markdown-body',
+    '[class*="message-content"]',
+    '[class*="MessageContent"]',
+    '[class*="chat-message"]',
+  ];
+
+  for (const sel of CONTENT_SELECTORS) {
+    const found = turn.querySelector<HTMLElement>(sel);
+    if (found && found.textContent && found.textContent.trim().length > 0) {
+      return found;
+    }
+  }
+
+  return turn;
+}
 
 /**
  * Walk up from the copy button until we find an element whose children include
@@ -174,6 +234,7 @@ function findUserTurnBeforeClaudeResponse(claudeEl: HTMLElement): HTMLElement | 
     if (
       prev &&
       !prev.classList.contains('font-claude-response') &&
+      !prev.classList.contains('sr-only') &&   // skip accessibility-only turn labels
       !prev.querySelector('.font-claude-response')
     ) {
       return prev;
@@ -216,15 +277,30 @@ function getCleanText(el: HTMLElement): string {
 
   clone
     .querySelectorAll(
-      'button, svg, script, style, noscript, time, [role="img"], [aria-hidden="true"]'
+      // .sr-only = Tailwind screen-reader-only class: visually hidden but in the DOM.
+      // Claude uses it for turn labels ("You said:", "Claude responded:") and tool-use
+      // status spans ("Loaded tools, used a tool") — all UI chrome, not message content.
+      'button, svg, script, style, noscript, time, [role="img"], [aria-hidden="true"], .sr-only'
     )
     .forEach((n) => n.remove());
 
-  return nodeToText(clone)
+  const raw = nodeToText(clone)
     .replace(/\b\d{1,2}:\d{2}(?:\s*[AP]M)?\b/gi, '')                          // timestamps: 23:45, 11:30 AM
     .replace(/\b\d+\s*\/\s*\d+\b/g, '')                                       // counters: 2 / 2
     .replace(/\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\b/gi, '') // dates: 10 Apr, 5 January
     .replace(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}\b/gi, '') // dates: Apr 10, January 5
+    // Strip UI captions injected by Claude's interface into turn containers
+    .replace(/^You said:\s*\n?/, '')
+    .replace(/^Claude responded:\s*\n?/, '')
+    // Strip tool-use indicator lines ("Loaded tools, used a tool", "Used 2 tools", etc.)
+    .replace(/^(?:Loaded \d+|Used \d+|Loaded) tools?[^\n]*\n?/gim, '');
+
+  // Remove consecutive duplicate paragraphs — these arise when a tool-use preview
+  // repeats the same text that appears in the final response below it.
+  return raw
+    .split(/\n{2,}/)
+    .filter((p, i, arr) => i === 0 || p.trim() !== arr[i - 1].trim())
+    .join('\n\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
